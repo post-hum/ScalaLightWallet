@@ -48,10 +48,34 @@ if(DEBUG)
     set(CMAKE_VERBOSE_MAKEFILE ON)
 endif()
 
-# Monero configuration
-set(BUILD_GUI_DEPS ON)
-set(BUILD_64 ON)
-set(USE_SINGLE_BUILDDIR ON)
+# ------------------------------------------------------------
+# XLA CHANGE: Prebuilt Scala library instead of monero submodule
+# ------------------------------------------------------------
+set(MONERO_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/monero/build/release")
+set(MONERO_LIBRARY "${MONERO_BUILD_DIR}/lib/libwallet_merged.a")
+if(NOT EXISTS "${MONERO_LIBRARY}")
+    message(FATAL_ERROR "XLA library not found at ${MONERO_LIBRARY}.\nPlease build it first: cd monero && make release-static")
+endif()
+message(STATUS "Using XLA library: ${MONERO_LIBRARY}")
+
+# Add include directories needed by Feather
+include_directories(
+    monero/src
+    monero/contrib/epee/include
+    monero/build/release/translations    # optional, for localization
+)
+
+# Provide variables that were previously fetched from the monero subdirectory
+set(ARCH_WIDTH 64)                       # assume 64-bit, adjust if needed
+set(DEVICE_TREZOR_READY 0)               # Trezor not supported with this build
+set(TREZOR_DEP_LIBS "")
+set(OPENBSD 0)
+set(FREEBSD 0)
+set(DRAGONFLY 0)
+
+# The following Monero-specific build flags are no longer needed because we link against prebuilt library
+# set(BUILD_GUI_DEPS ON)
+# set(USE_SINGLE_BUILDDIR ON)
 
 if(STATIC)
     message(STATUS "Initiating static build, turning on manual submodules")
@@ -66,18 +90,6 @@ endif()
 include(CMakePackageConfigHelpers)
 
 #### Dependencies ####
-# Monero
-if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/monero/CMakeLists.txt")
-    message(FATAL_ERROR "'monero/CMakeLists.txt' does not exist, did you forget to:\ngit submodule update --init --recursive --progress")
-endif()
-add_subdirectory(monero EXCLUDE_FROM_ALL)
-get_directory_property(ARCH_WIDTH DIRECTORY "monero" DEFINITION ARCH_WIDTH)
-get_directory_property(DEVICE_TREZOR_READY DIRECTORY "monero" DEFINITION DEVICE_TREZOR_READY)
-get_directory_property(TREZOR_DEP_LIBS DIRECTORY "monero" DEFINITION TREZOR_DEP_LIBS)
-get_directory_property(OPENBSD DIRECTORY "monero" DEFINITION OPENBSD)
-get_directory_property(FREEBSD DIRECTORY "monero" DEFINITION FREEBSD)
-get_directory_property(DRAGONFLY DIRECTORY "monero" DEFINITION DRAGONFLY)
-
 # pthread
 find_package(Threads REQUIRED)
 

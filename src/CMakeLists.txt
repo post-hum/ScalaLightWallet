@@ -267,12 +267,22 @@ if (DEPENDS)
     target_link_directories(feather PRIVATE "${LIB_DIR}")
 endif()
 
+# ============================================================
+# XLA CHANGE: link against libwallet_merged.a instead of separate Monero libs
+# ============================================================
+# The monolithic library libwallet_merged.a contains wallet_api, epee, easylogging, ringct, version, etc.
+set(MONERO_LIBRARY ${CMAKE_SOURCE_DIR}/monero/build/release/lib/libwallet_merged.a)
+if(NOT EXISTS ${MONERO_LIBRARY})
+    message(FATAL_ERROR "XLA library not found at ${MONERO_LIBRARY}")
+endif()
+
 target_link_libraries(feather PRIVATE
-        wallet_api
-        epee
-        easylogging
-        ringct
-        version
+        ${MONERO_LIBRARY}
+        # wallet_api        # replaced by MONERO_LIBRARY
+        # epee             # replaced
+        # easylogging      # replaced
+        # ringct           # replaced
+        # version          # replaced
         ${Boost_LIBRARIES}
         ${OPENSSL_LIBRARIES}
         ${EXTRA_LIBRARIES}

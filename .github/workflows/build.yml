@@ -1,10 +1,10 @@
-name: ci/gh-actions/build
+name: Build Feather for Scala (XLA)
 
 on: [push, pull_request]
 
 jobs:
-  build-ubuntu-without-scanner:
-    name: "Ubuntu 24.04 (no scanner)"
+  build-ubuntu:
+    name: "Ubuntu 24.04 (XLA)"
     runs-on: ubuntu-latest
     container:
       image: ubuntu:24.04
@@ -12,25 +12,60 @@ jobs:
       - name: update apt
         run: apt update
       - name: install dependencies
-        run: apt -y install git cmake build-essential ccache libssl-dev libunbound-dev libboost-all-dev
-                            libqrencode-dev qt6-base-dev qt6-svg-dev qt6-websockets-dev qt6-multimedia-dev
-                            qt6-wayland-dev libzip-dev libsodium-dev libgcrypt20-dev libx11-xcb-dev
-                            protobuf-compiler libprotobuf-dev libhidapi-dev libzxing-dev libusb-dev
-                            libusb-1.0-0-dev
+        run:
+          apt -y install git cmake build-essential ccache libssl-dev libunbound-dev libboost-all-dev
+          libqrencode-dev qt6-base-dev qt6-svg-dev qt6-websockets-dev qt6-multimedia-dev
+          qt6-wayland-dev libzip-dev libsodium-dev libgcrypt20-dev libx11-xcb-dev
+          protobuf-compiler libprotobuf-dev libhidapi-dev libzxing-dev libusb-dev
+          libusb-1.0-0-dev
       - name: configure git
         run: git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: build
+      - name: Build Scala library (libwallet_merged.a)
+        run: |
+          cd monero
+          git submodule update --init --force --recursive
+          make release-static
+          # Проверяем, что библиотека создалась
+          ls -la build/release/lib/libwallet_merged.a
+          cd ..
+      - name: Patch Feather CMakeLists.txt to use prebuilt library
+        run: |
+          # Создаём патч для CMakeLists.txt
+          cat > /tmp/cmake_patch << 'EOF'
+          --- CMakeLists.txt.orig	2024-01-01 00:00:00.000000000 +0000
+          +++ CMakeLists.txt	2024-01-01 00:00:00.000000000 +0000
+          @@ -XX,XX +XX,XX @@
+          - add_subdirectory(monero)
+          + # add_subdirectory(monero)  # replaced by manual library linking
+          + include_directories(monero/src monero/contrib/epee/include)
+          + set(MONERO_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/monero/build/release/lib/libwallet_merged.a)
+          @@ -YY,YY +YY,YY @@
+          - target_link_libraries(feather wallet_merged ...)
+          + target_link_libraries(feather ${MONERO_LIBRARY} ...)
+          EOF
+          # Применяем патч (номера строк нужно уточнить, поэтому используем более надёжный способ – sed)
+          sed -i '/add_subdirectory(monero)/d' CMakeLists.txt
+          # Вставляем новые строки после определённого места, например, после project(feather)
+          awk '/project\(feather\)/ {print; print "include_directories(monero/src monero/contrib/epee/include)"; print "set(MONERO_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/monero/build/release/lib/libwallet_merged.a)"; next}1' CMakeLists.txt > CMakeLists.txt.tmp && mv CMakeLists.txt.tmp CMakeLists.txt
+          # Заменяем wallet_merged на ${MONERO_LIBRARY} в target_link_libraries
+          sed -i 's/wallet_merged/${MONERO_LIBRARY}/g' CMakeLists.txt
+      - name: build feather
         run: |
           mkdir build
           cd build
-          cmake -DWITH_SCANNER=OFF ..
+          cmake -DWITH_SCANNER=OFF -DCMAKE_BUILD_TYPE=Release ..
           cmake --build . -j $(nproc)
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feather-xla-ubuntu
+          path: build/bin/feather
 
   build-arch:
-    name: 'Arch Linux'
+    name: "Arch Linux (XLA)"
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -42,13 +77,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Build Scala library
+        run: |
+          cd monero
+          git submodule update --init --force --recursive
+          make release-static
+      - name: Patch CMakeLists.txt (same as above)
+        run: |
+          sed -i '/add_subdirectory(monero)/d' CMakeLists.txt
+          awk '/project\(feather\)/ {print; print "include_directories(monero/src monero/contrib/epee/include)"; print "set(MONERO_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/monero/build/release/lib/libwallet_merged.a)"; next}1' CMakeLists.txt > CMakeLists.txt.tmp && mv CMakeLists.txt.tmp CMakeLists.txt
+          sed -i 's/wallet_merged/${MONERO_LIBRARY}/g' CMakeLists.txt
       - name: build
         run: |
-          cmake -S . -B build
+          cmake -S . -B build -DWITH_SCANNER=OFF
           cmake --build build -j $(nproc)
 
   build-macos:
-    name: 'macOS (brew)'
+    name: "macOS (XLA)"
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +104,17 @@ jobs:
           brew uninstall cmake
           brew update
           brew install --quiet qt libsodium libzip qrencode unbound cmake boost hidapi openssl expat libunwind-headers protobuf pkgconfig
+      - name: Build Scala library
+        run: |
+          cd monero
+          git submodule update --init --force --recursive
+          make release-static
+      - name: Patch CMakeLists.txt
+        run: |
+          sed -i '' '/add_subdirectory(monero)/d' CMakeLists.txt
+          awk '/project\(feather\)/ {print; print "include_directories(monero/src monero/contrib/epee/include)"; print "set(MONERO_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/monero/build/release/lib/libwallet_merged.a)"; next}1' CMakeLists.txt > CMakeLists.txt.tmp && mv CMakeLists.txt.tmp CMakeLists.txt
+          sed -i '' 's/wallet_merged/${MONERO_LIBRARY}/g' CMakeLists.txt
       - name: build
         run: |
-          cmake -S . -B build -DWITH_SCANNER=Off
-          cmake --build build -j $(nproc)
+          cmake -S . -B build -DWITH_SCANNER=OFF
+          cmake --build build -j $(sysctl -n hw.logicalcpu)
