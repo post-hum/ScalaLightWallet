@@ -9,10 +9,11 @@ jobs:
     container:
       image: ubuntu:24.04
     steps:
-      - name: update apt
+      - name: update apt and install basics
         run: |
           apt update
           apt upgrade -y
+          apt install -y wget curl tar gzip
       - name: install dependencies
         run: |
           apt install -y \
@@ -27,7 +28,8 @@ jobs:
       - name: Install newer CMake
         run: |
           apt remove -y cmake
-          wget -qO- "https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+          wget https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
+          tar -xzf cmake-3.29.3-linux-x86_64.tar.gz -C /usr/local --strip-components=1
           export PATH=/usr/local/bin:$PATH
           cmake --version
       - name: configure git
@@ -44,10 +46,15 @@ jobs:
           git pull origin master || git pull origin release-v0.18
           git submodule update --init --force --recursive
 
-          # Правка CMakeLists.txt для совместимости
+          # Фикс минимальных версий CMake
+          sed -i 's/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/' CMakeLists.txt
+          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.10)/' external/miniupnp/miniupnpc/CMakeLists.txt
+
+          # Добавляем политики
           sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\nset(CMAKE_POLICY_VERSION_MINIMUM 3.5)\n' CMakeLists.txt
 
           mkdir -p build/release && cd build/release
+          export PATH=/usr/local/bin:$PATH
           cmake -D STATIC=ON \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
@@ -60,7 +67,6 @@ jobs:
           cd ../..
       - name: Patch root CMakeLists.txt for compatibility
         run: |
-          # Добавляем политики в корневой CMakeLists.txt Feather
           sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\nset(CMAKE_POLICY_VERSION_MINIMUM 3.5)\n' CMakeLists.txt
       - name: Build Feather
         run: |
@@ -78,7 +84,7 @@ jobs:
 
   build-macos:
     name: "macOS (Apple Silicon/Intel)"
-    runs-on: macos-14 # macOS 14 Sonoma с лучшей поддержкой ARM64
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +96,7 @@ jobs:
           brew install --quiet \
             qt@6 libsodium libzip qrencode unbound \
             cmake boost hidapi openssl expat \
-            libunwind-headers protobuf pkgconfig
+            libunwind-headers protobuf pkgconfig wget
           brew link --overwrite qt@6
       - name: Build Scala library
         run: |
@@ -99,7 +105,10 @@ jobs:
           git pull origin master || git pull origin release-v0.18
           git submodule update --init --force --recursive
 
-          # Добавляем политики в CMakeLists.txt Scala
+          # Фикс минимальных версий CMake для macOS
+          sed -i '' 's/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/' CMakeLists.txt
+          sed -i '' 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.10)/' external/miniupnp/miniupnpc/CMakeLists.txt
+
           sed -i '' '1i\
           cmake_policy(SET CMP0148 NEW)\
           cmake_policy(SET CMP0167 NEW)\
@@ -132,10 +141,3 @@ jobs:
         with:
           name: feather-xla-macos
           path: build/bin/feather
-
-  # Arch Linux временно отключен
-  # build-arch:
-  #   name: 'Arch Linux (disabled)'
-  #   runs-on: ubuntu-latest
-  #   if: false
-  #   ...
