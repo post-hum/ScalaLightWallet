@@ -58,10 +58,11 @@ jobs:
 
           cd ..
 
-      - name: Build Scala library (shared Boost)
+      - name: Build Scala library
         run: |
           cd monero
-          mkdir -p build/release && cd build/release
+          rm -rf build
+          mkdir -p build && cd build
 
           export PATH=/usr/local/bin:$PATH
           cmake -D STATIC=OFF \
@@ -74,11 +75,12 @@ jobs:
                 ..
 
           make -j$(nproc)
-          ls -la lib/libwallet_merged.a
+          ls -la lib/libwallet_merged.a || find . -name "*.a" | head -10
           cd ../..
 
       - name: Build Feather
         run: |
+          rm -rf build
           mkdir -p build && cd build
           export PATH=/usr/local/bin:$PATH
           cmake -DWITH_SCANNER=OFF \
