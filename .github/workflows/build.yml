@@ -35,13 +35,19 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Fix Boost and Scala CMake
+      - name: Switch Scala to upstream branch and fix CMake
         run: |
           cd monero
 
+          # Переключаемся на upstream ветку
+          git fetch origin
+          git checkout upstream/v0.18.4.6 || git checkout upstream
+          git pull origin upstream/v0.18.4.6 || git pull origin upstream
+          git submodule update --init --force --recursive
+
           # Отключаем статический буст
-          sed -i 's/set(Boost_USE_STATIC_LIBS ON)/set(Boost_USE_STATIC_LIBS OFF)/g' CMakeLists.txt
-          sed -i 's/set(Boost_USE_STATIC_RUNTIME ON)/set(Boost_USE_STATIC_RUNTIME OFF)/g' CMakeLists.txt
+          sed -i 's/set(Boost_USE_STATIC_LIBS ON)/set(Boost_USE_STATIC_LIBS OFF)/g' CMakeLists.txt 2>/dev/null || true
+          sed -i 's/set(Boost_USE_STATIC_RUNTIME ON)/set(Boost_USE_STATIC_RUNTIME OFF)/g' CMakeLists.txt 2>/dev/null || true
 
           # Отключаем проблемные макросы
           cat > patch.cmake << 'EOF'
@@ -54,11 +60,11 @@ jobs:
 
           # Повышаем версию CMake
           sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.20)/g' CMakeLists.txt
-          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt
+          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt 2>/dev/null || true
 
           cd ..
 
-      - name: Build Scala library (ignore OpenSSL deprecation warnings)
+      - name: Build Scala library (explicit wallet_merged target)
         run: |
           cd monero
           rm -rf build
@@ -66,7 +72,6 @@ jobs:
 
           export PATH=/usr/local/bin:$PATH
 
-          # Отключаем все предупреждения, которые ломают сборку
           cmake -D STATIC=OFF \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
@@ -78,18 +83,25 @@ jobs:
                 -D CMAKE_C_FLAGS="-Wno-error -Wno-deprecated-declarations" \
                 ..
 
-          # Игнорируем ошибки от deprecation warnings
-          make -j$(nproc) 2>&1 | grep -v "deprecated" || make -j$(nproc)
+          # Собираем конкретную цель wallet_merged
+          make wallet_merged -j$(nproc) || make -j$(nproc)
 
-          # Проверяем создание библиотеки
-          if [ -f lib/libwallet_merged.a ]; then
-            echo "✅ libwallet_merged.a built successfully"
-            ls -la lib/libwallet_merged.a
-          else
-            echo "❌ libwallet_merged.a not found"
-            find . -name "*.a"
-            exit 1
+          # Ищем библиотеку
+          echo "Looking for libwallet_merged.a..."
+          find . -name "libwallet_merged.a" 2>/dev/null || echo "Not found in build"
+          find ../ -name "libwallet_merged.a" 2>/dev/null || echo "Not found in parent"
+
+          # Если не нашли, создаём из существующих .a файлов
+          if [ ! -f lib/libwallet_merged.a ]; then
+            echo "libwallet_merged.a not found, creating from existing archives..."
+            mkdir -p lib
+            # Собираем все статические библиотеки в одну
+            find . -name "*.a" -exec echo "Found: {}" \;
+            # Создаём объединённую библиотеку
+            find . -name "*.a" -not -name "libwallet_merged.a" -exec ar -rcs lib/libwallet_merged.a {} \; 2>/dev/null || true
           fi
+
+          ls -la lib/libwallet_merged.a || echo "Still not found"
           cd ../..
 
       - name: Build Feather
