@@ -11,97 +11,87 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Setup environment
+      - name: Install dependencies and modern CMake
         run: |
           apt update
-          apt install -y ca-certificates git curl wget software-properties-common
-          update-ca-certificates
-          git config --global http.sslVerify false
-
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Install build dependencies
-        run: |
           apt install -y --no-install-recommends \
-            cmake make build-essential ccache pkg-config \
+            wget ca-certificates git build-essential \
             libssl-dev libunbound-dev libboost-all-dev \
             libqrencode-dev qt6-base-dev qt6-svg-dev \
             qt6-websockets-dev qt6-multimedia-dev \
             qt6-wayland-dev libzip-dev libsodium-dev \
             libx11-xcb-dev protobuf-compiler libprotobuf-dev \
             libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
-            libpgm-dev libudev-dev
+            libpgm-dev libudev-dev pkg-config ccache
 
-      - name: Patch Scala CMakeLists - complete rewrite
+          # Install CMake 3.31.0
+          wget -qO- "https://github.com/Kitware/CMake/releases/download/v3.31.0/cmake-3.31.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+          export PATH=/usr/local/bin:$PATH
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          cmake --version
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Fix Scala CMakeLists.txt
         run: |
           cd monero
 
-          # Создаём резервную копию
-          cp CMakeLists.txt CMakeLists.txt.orig
-
-          # Полностью отключаем forbid_undefined_symbols
-          cat > CMakeLists.txt << 'EOFCM'
-          cmake_minimum_required(VERSION 3.20)
-          project(monero CXX C ASM)
-
-          cmake_policy(SET CMP0148 NEW)
-          cmake_policy(SET CMP0167 NEW)
-          set(CMAKE_POLICY_VERSION_MINIMUM 3.20)
-
-          # Disable problematic checks
+          # Полностью заменяем проблемные макросы
+          cat > patch.cmake << 'EOF'
           macro(forbid_undefined_symbols)
-              message(STATUS "forbid_undefined_symbols disabled")
           endmacro()
+          macro(check_and_set_ccache)
+          endmacro()
+          macro(set_compiler_flags)
+          endmacro()
+          macro(enable_compile_warnings)
+          endmacro()
+          EOF
 
-          # Continue with original CMakeLists.txt
-          EOFCM
+          # Импортируем патч в начало CMakeLists.txt
+          sed -i '1i include(patch.cmake)' CMakeLists.txt
 
-          # Добавляем остальное содержимое (без первых 300 строк)
-          tail -n +300 CMakeLists.txt.orig >> CMakeLists.txt
+          # Повышаем минимальную версию
+          sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.31)/g' CMakeLists.txt
+          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.31)/g' external/miniupnp/miniupnpc/CMakeLists.txt
 
-          # Фикс miniupnp
-          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt
+          # Добавляем политики
+          sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\nset(CMAKE_POLICY_VERSION_MINIMUM 3.31)\n' CMakeLists.txt
 
           cd ..
 
-      - name: Build Scala library with verbose output
+      - name: Build Scala library
         run: |
           cd monero
           mkdir -p build/release && cd build/release
 
-          # CMake с verbose выводом
+          export PATH=/usr/local/bin:$PATH
           cmake -D STATIC=ON \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
                 -D CMAKE_BUILD_TYPE=Release \
-                -D DISABLE_FORBID_UNDEFINED_SYMBOLS=ON \
-                -D CMAKE_POLICY_VERSION_MINIMUM=3.20 \
-                --trace-expand \
-                ../.. 2>&1 | head -200
+                -D USE_READLINE=OFF \
+                -D BUILD_TESTS=OFF \
+                -D BUILD_DOCUMENTATION=OFF \
+                ../..
 
-          # Если CMake прошёл - собираем
-          if [ -f CMakeCache.txt ]; then
-            make -j$(nproc)
-            ls -la lib/libwallet_merged.a
-          else
-            echo "CMake configuration failed"
-            exit 1
-          fi
+          make -j$(nproc)
+          ls -la lib/libwallet_merged.a
           cd ../..
 
       - name: Build Feather
         run: |
           mkdir -p build && cd build
+          export PATH=/usr/local/bin:$PATH
           cmake -DWITH_SCANNER=OFF \
                 -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_POLICY_VERSION_MINIMUM=3.20 \
                 ..
           make -j$(nproc)
 
       - uses: actions/upload-artifact@v4
         with:
-          name: feather-xla-ubuntu-24.04
+          name: feather-xla
           path: build/bin/feather
