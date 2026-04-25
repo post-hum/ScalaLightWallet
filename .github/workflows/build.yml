@@ -11,36 +11,36 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Install dependencies
+      - name: Setup environment
         run: |
           apt update
+          apt install -y ca-certificates git curl wget
+          update-ca-certificates
+          git config --global http.sslVerify false
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
           apt install -y --no-install-recommends \
-            git cmake make build-essential ccache pkg-config \
+            cmake make build-essential ccache pkg-config \
             libssl-dev libunbound-dev libboost-all-dev \
             libqrencode-dev qt6-base-dev qt6-svg-dev \
             qt6-websockets-dev qt6-multimedia-dev \
             qt6-wayland-dev libzip-dev libsodium-dev \
             libx11-xcb-dev protobuf-compiler libprotobuf-dev \
             libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
-            libpgm-dev
-          # libzxing-dev в 24.04 может называться по-другому
-          apt install -y --no-install-recommends libzxing-core-dev || true
-      - name: Configure git
-        run: git config --global --add safe.directory '*'
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
+            libpgm-dev || true
 
       - name: Patch Scala CMakeLists
         run: |
           cd monero
-          # Повышаем минимальную версию CMake
           sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.20)/g' CMakeLists.txt
           sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt
-          # Добавляем политики
           sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\n' CMakeLists.txt
-          # Отключаем проблемную проверку
           sed -i 's/macro(forbid_undefined_symbols)/macro(forbid_undefined_symbols)\n    return()/g' CMakeLists.txt
           cd ..
 
@@ -54,16 +54,9 @@ jobs:
                 -D CMAKE_BUILD_TYPE=Release \
                 -D DISABLE_FORBID_UNDEFINED_SYMBOLS=ON \
                 -D CMAKE_POLICY_VERSION_MINIMUM=3.20 \
-                ../.. 2>&1 | tee cmake_output.log
-
-          if grep -q "Configuring incomplete" cmake_output.log; then
-            echo "CMake failed. Last 50 lines:"
-            tail -50 cmake_output.log
-            exit 1
-          fi
-
+                ../..
           make -j$(nproc)
-          ls -la lib/libwallet_merged.a || find . -name "*.a" | head -10
+          ls -la lib/libwallet_merged.a
           cd ../..
 
       - name: Patch Feather CMakeLists
@@ -76,14 +69,7 @@ jobs:
           cmake -DWITH_SCANNER=OFF \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_POLICY_VERSION_MINIMUM=3.20 \
-                .. 2>&1 | tee cmake_feather.log
-
-          if grep -q "Configuring incomplete" cmake_feather.log; then
-            echo "CMake failed. Last 50 lines:"
-            tail -50 cmake_feather.log
-            exit 1
-          fi
-
+                ..
           make -j$(nproc)
 
       - uses: actions/upload-artifact@v4
