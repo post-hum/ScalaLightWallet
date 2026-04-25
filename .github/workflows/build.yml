@@ -11,7 +11,7 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Install dependencies and modern CMake
+      - name: Install dependencies
         run: |
           apt update
           apt install -y --no-install-recommends \
@@ -24,7 +24,7 @@ jobs:
             libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
             libpgm-dev libudev-dev pkg-config ccache
 
-          # Install CMake 3.31.0
+          # Install CMake 3.31
           wget -qO- "https://github.com/Kitware/CMake/releases/download/v3.31.0/cmake-3.31.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
           export PATH=/usr/local/bin:$PATH
           echo "/usr/local/bin" >> $GITHUB_PATH
@@ -35,48 +35,43 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Fix Scala CMakeLists.txt
+      - name: Fix Boost and Scala CMake
         run: |
           cd monero
 
-          # Полностью заменяем проблемные макросы
+          # Отключаем статический буст
+          sed -i 's/set(Boost_USE_STATIC_LIBS ON)/set(Boost_USE_STATIC_LIBS OFF)/g' CMakeLists.txt
+          sed -i 's/set(Boost_USE_STATIC_RUNTIME ON)/set(Boost_USE_STATIC_RUNTIME OFF)/g' CMakeLists.txt
+
+          # Отключаем проблемные макросы
           cat > patch.cmake << 'EOF'
           macro(forbid_undefined_symbols)
           endmacro()
           macro(check_and_set_ccache)
           endmacro()
-          macro(set_compiler_flags)
-          endmacro()
-          macro(enable_compile_warnings)
-          endmacro()
           EOF
-
-          # Импортируем патч в начало CMakeLists.txt
           sed -i '1i include(patch.cmake)' CMakeLists.txt
 
-          # Повышаем минимальную версию
-          sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.31)/g' CMakeLists.txt
-          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.31)/g' external/miniupnp/miniupnpc/CMakeLists.txt
-
-          # Добавляем политики
-          sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\nset(CMAKE_POLICY_VERSION_MINIMUM 3.31)\n' CMakeLists.txt
+          # Повышаем версию CMake
+          sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.20)/g' CMakeLists.txt
+          sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt
 
           cd ..
 
-      - name: Build Scala library
+      - name: Build Scala library (shared Boost)
         run: |
           cd monero
           mkdir -p build/release && cd build/release
 
           export PATH=/usr/local/bin:$PATH
-          cmake -D STATIC=ON \
+          cmake -D STATIC=OFF \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
                 -D CMAKE_BUILD_TYPE=Release \
                 -D USE_READLINE=OFF \
                 -D BUILD_TESTS=OFF \
                 -D BUILD_DOCUMENTATION=OFF \
-                ../..
+                ..
 
           make -j$(nproc)
           ls -la lib/libwallet_merged.a
