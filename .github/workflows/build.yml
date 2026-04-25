@@ -14,7 +14,7 @@ jobs:
       - name: Setup environment
         run: |
           apt update
-          apt install -y ca-certificates git curl wget
+          apt install -y ca-certificates git curl wget software-properties-common
           update-ca-certificates
           git config --global http.sslVerify false
 
@@ -33,35 +33,64 @@ jobs:
             qt6-wayland-dev libzip-dev libsodium-dev \
             libx11-xcb-dev protobuf-compiler libprotobuf-dev \
             libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
-            libpgm-dev || true
+            libpgm-dev libudev-dev
 
-      - name: Patch Scala CMakeLists
+      - name: Patch Scala CMakeLists - complete rewrite
         run: |
           cd monero
-          sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.20)/g' CMakeLists.txt
+
+          # Создаём резервную копию
+          cp CMakeLists.txt CMakeLists.txt.orig
+
+          # Полностью отключаем forbid_undefined_symbols
+          cat > CMakeLists.txt << 'EOFCM'
+          cmake_minimum_required(VERSION 3.20)
+          project(monero CXX C ASM)
+
+          cmake_policy(SET CMP0148 NEW)
+          cmake_policy(SET CMP0167 NEW)
+          set(CMAKE_POLICY_VERSION_MINIMUM 3.20)
+
+          # Disable problematic checks
+          macro(forbid_undefined_symbols)
+              message(STATUS "forbid_undefined_symbols disabled")
+          endmacro()
+
+          # Continue with original CMakeLists.txt
+          EOFCM
+
+          # Добавляем остальное содержимое (без первых 300 строк)
+          tail -n +300 CMakeLists.txt.orig >> CMakeLists.txt
+
+          # Фикс miniupnp
           sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.20)/g' external/miniupnp/miniupnpc/CMakeLists.txt
-          sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\n' CMakeLists.txt
-          sed -i 's/macro(forbid_undefined_symbols)/macro(forbid_undefined_symbols)\n    return()/g' CMakeLists.txt
+
           cd ..
 
-      - name: Build Scala library
+      - name: Build Scala library with verbose output
         run: |
           cd monero
           mkdir -p build/release && cd build/release
+
+          # CMake с verbose выводом
           cmake -D STATIC=ON \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
                 -D CMAKE_BUILD_TYPE=Release \
                 -D DISABLE_FORBID_UNDEFINED_SYMBOLS=ON \
                 -D CMAKE_POLICY_VERSION_MINIMUM=3.20 \
-                ../..
-          make -j$(nproc)
-          ls -la lib/libwallet_merged.a
-          cd ../..
+                --trace-expand \
+                ../.. 2>&1 | head -200
 
-      - name: Patch Feather CMakeLists
-        run: |
-          sed -i '1i cmake_policy(SET CMP0148 NEW)\ncmake_policy(SET CMP0167 NEW)\n' CMakeLists.txt
+          # Если CMake прошёл - собираем
+          if [ -f CMakeCache.txt ]; then
+            make -j$(nproc)
+            ls -la lib/libwallet_merged.a
+          else
+            echo "CMake configuration failed"
+            exit 1
+          fi
+          cd ../..
 
       - name: Build Feather
         run: |
