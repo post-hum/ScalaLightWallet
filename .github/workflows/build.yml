@@ -24,7 +24,8 @@ jobs:
             qt6-wayland-dev libzip-dev libsodium-dev \
             libgcrypt20-dev libx11-xcb-dev protobuf-compiler \
             libprotobuf-dev libhidapi-dev libzxing-dev \
-            libusb-dev libusb-1.0-0-dev
+            libusb-dev libusb-1.0-0-dev \
+            libzmq3-dev          # <-- ДОБАВЛЕНО: ZeroMQ для P2P
       - name: Install newer CMake
         run: |
           apt remove -y cmake
@@ -96,7 +97,8 @@ jobs:
           brew install --quiet \
             qt@6 libsodium libzip qrencode unbound \
             cmake boost hidapi openssl expat \
-            libunwind-headers protobuf pkgconfig wget
+            libunwind-headers protobuf pkgconfig wget \
+            zeromq           # <-- ДОБАВЛЕНО: ZeroMQ для macOS
           brew link --overwrite qt@6
       - name: Build Scala library
         run: |
