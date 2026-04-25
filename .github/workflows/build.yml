@@ -4,10 +4,10 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build-ubuntu:
-    name: "Ubuntu 22.04 (XLA) - Stable"
+    name: "Ubuntu 24.04 (XLA)"
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:22.04
+      image: ubuntu:24.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
@@ -19,10 +19,12 @@ jobs:
             libssl-dev libunbound-dev libboost-all-dev \
             libqrencode-dev qt6-base-dev qt6-svg-dev \
             qt6-websockets-dev qt6-multimedia-dev \
-            libzip-dev libsodium-dev libx11-xcb-dev \
-            protobuf-compiler libprotobuf-dev libhidapi-dev \
-            libzxing-dev libusb-1.0-0-dev libzmq3-dev \
-            libpgm-dev libnorm-dev
+            qt6-wayland-dev libzip-dev libsodium-dev \
+            libx11-xcb-dev protobuf-compiler libprotobuf-dev \
+            libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
+            libpgm-dev
+          # libzxing-dev в 24.04 может называться по-другому
+          apt install -y --no-install-recommends libzxing-core-dev || true
       - name: Configure git
         run: git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
@@ -54,7 +56,6 @@ jobs:
                 -D CMAKE_POLICY_VERSION_MINIMUM=3.20 \
                 ../.. 2>&1 | tee cmake_output.log
 
-          # Проверяем ошибки
           if grep -q "Configuring incomplete" cmake_output.log; then
             echo "CMake failed. Last 50 lines:"
             tail -50 cmake_output.log
@@ -62,7 +63,7 @@ jobs:
           fi
 
           make -j$(nproc)
-          ls -la lib/libwallet_merged.a
+          ls -la lib/libwallet_merged.a || find . -name "*.a" | head -10
           cd ../..
 
       - name: Patch Feather CMakeLists
@@ -87,5 +88,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: feather-xla-ubuntu-22.04
+          name: feather-xla-ubuntu-24.04
           path: build/bin/feather
