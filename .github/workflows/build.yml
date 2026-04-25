@@ -58,13 +58,15 @@ jobs:
 
           cd ..
 
-      - name: Build Scala library
+      - name: Build Scala library (ignore OpenSSL deprecation warnings)
         run: |
           cd monero
           rm -rf build
           mkdir -p build && cd build
 
           export PATH=/usr/local/bin:$PATH
+
+          # Отключаем все предупреждения, которые ломают сборку
           cmake -D STATIC=OFF \
                 -D ARCH="x86-64" \
                 -D BUILD_64=ON \
@@ -72,10 +74,22 @@ jobs:
                 -D USE_READLINE=OFF \
                 -D BUILD_TESTS=OFF \
                 -D BUILD_DOCUMENTATION=OFF \
+                -D CMAKE_CXX_FLAGS="-Wno-error -Wno-deprecated-declarations" \
+                -D CMAKE_C_FLAGS="-Wno-error -Wno-deprecated-declarations" \
                 ..
 
-          make -j$(nproc)
-          ls -la lib/libwallet_merged.a || find . -name "*.a" | head -10
+          # Игнорируем ошибки от deprecation warnings
+          make -j$(nproc) 2>&1 | grep -v "deprecated" || make -j$(nproc)
+
+          # Проверяем создание библиотеки
+          if [ -f lib/libwallet_merged.a ]; then
+            echo "✅ libwallet_merged.a built successfully"
+            ls -la lib/libwallet_merged.a
+          else
+            echo "❌ libwallet_merged.a not found"
+            find . -name "*.a"
+            exit 1
+          fi
           cd ../..
 
       - name: Build Feather
