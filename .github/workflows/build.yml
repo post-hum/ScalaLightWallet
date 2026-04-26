@@ -41,9 +41,13 @@ jobs:
 
           # Переключаемся на upstream ветку
           git fetch origin
-          git checkout upstream/v0.18.4.6 || git checkout upstream
-          git pull origin upstream/v0.18.4.6 || git pull origin upstream
+          git checkout upstream/v0.18.4.6
+          git pull origin upstream/v0.18.4.6
           git submodule update --init --force --recursive
+
+          # Отключаем IPFS (не нужен для кошелька)
+          sed -i 's/add_subdirectory(external\/libipfs)/#add_subdirectory(external\/libipfs)/g' CMakeLists.txt
+          sed -i 's/.*libipfs.*//g' CMakeLists.txt
 
           # Отключаем статический буст
           sed -i 's/set(Boost_USE_STATIC_LIBS ON)/set(Boost_USE_STATIC_LIBS OFF)/g' CMakeLists.txt 2>/dev/null || true
@@ -64,7 +68,7 @@ jobs:
 
           cd ..
 
-      - name: Build Scala library (explicit wallet_merged target)
+      - name: Build Scala library
         run: |
           cd monero
           rm -rf build
@@ -79,29 +83,28 @@ jobs:
                 -D USE_READLINE=OFF \
                 -D BUILD_TESTS=OFF \
                 -D BUILD_DOCUMENTATION=OFF \
+                -D WITH_IPFS=OFF \
                 -D CMAKE_CXX_FLAGS="-Wno-error -Wno-deprecated-declarations" \
                 -D CMAKE_C_FLAGS="-Wno-error -Wno-deprecated-declarations" \
                 ..
 
-          # Собираем конкретную цель wallet_merged
-          make wallet_merged -j$(nproc) || make -j$(nproc)
+          # Собираем
+          make -j$(nproc) 2>&1 | grep -v "deprecated\|wcstombs" || make -j$(nproc)
 
           # Ищем библиотеку
           echo "Looking for libwallet_merged.a..."
-          find . -name "libwallet_merged.a" 2>/dev/null || echo "Not found in build"
-          find ../ -name "libwallet_merged.a" 2>/dev/null || echo "Not found in parent"
+          find . -name "libwallet_merged.a" 2>/dev/null
+          find ../ -name "libwallet_merged.a" 2>/dev/null
 
-          # Если не нашли, создаём из существующих .a файлов
-          if [ ! -f lib/libwallet_merged.a ]; then
-            echo "libwallet_merged.a not found, creating from existing archives..."
-            mkdir -p lib
-            # Собираем все статические библиотеки в одну
-            find . -name "*.a" -exec echo "Found: {}" \;
-            # Создаём объединённую библиотеку
-            find . -name "*.a" -not -name "libwallet_merged.a" -exec ar -rcs lib/libwallet_merged.a {} \; 2>/dev/null || true
+          # Проверяем создание библиотеки
+          if [ -f lib/libwallet_merged.a ]; then
+            echo "✅ libwallet_merged.a built successfully"
+            ls -la lib/libwallet_merged.a
+          else
+            echo "❌ libwallet_merged.a not found, available libraries:"
+            find . -name "*.a" | head -20
+            exit 1
           fi
-
-          ls -la lib/libwallet_merged.a || echo "Still not found"
           cd ../..
 
       - name: Build Feather
