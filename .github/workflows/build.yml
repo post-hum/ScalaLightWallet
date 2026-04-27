@@ -2,14 +2,6 @@ name: Build Feather for Scala (XLA)
 
 on: [push, pull_request, workflow_dispatch]
 
-env:
-  APT_SET_CONF: |
-    tee -a /etc/apt/apt.conf.d/80-custom << EOF
-    Acquire::Retries "3";
-    Acquire::http::Timeout "120";
-    Acquire::ftp::Timeout "120";
-    EOF
-
 jobs:
   build-ubuntu:
     name: "Ubuntu 22.04 (XLA)"
@@ -19,41 +11,64 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: set apt conf
-        run: ${{env.APT_SET_CONF}}
-
-      - name: update apt
-        run: apt update
-
-      - name: install dependencies
-        run: apt -y install curl build-essential cmake libboost-all-dev miniupnpc libunbound-dev graphviz doxygen libunwind8-dev pkg-config libssl-dev libzmq3-dev libsodium-dev libhidapi-dev libusb-1.0-0-dev libprotobuf-dev protobuf-compiler ccache git
-
-      - name: configure git
-        run: git config --global --add safe.directory '*'
+      - name: Install dependencies
+        run: |
+          apt update
+          apt install -y --no-install-recommends \
+            ca-certificates git wget build-essential cmake \
+            libssl-dev libunbound-dev libboost-all-dev \
+            libqrencode-dev qt5-qmake qt5-default \
+            qtbase5-dev qttools5-dev-tools \
+            libzip-dev libsodium-dev libx11-xcb-dev \
+            protobuf-compiler libprotobuf-dev \
+            libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
+            libpgm-dev libudev-dev pkg-config \
+            libunwind-dev libreadline-dev
+          git config --global http.sslVerify false
+          git config --global --add safe.directory '*'
 
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Kill IPFS
+        run: |
+          cd monero
+          rm -rf external/libipfs
+          sed -i '/libipfs/d' CMakeLists.txt
+          sed -i '/IPFS/d' CMakeLists.txt
+          find . -name "CMakeLists.txt" -exec sed -i '/ipfs/d' {} \;
+          mkdir -p external/libipfs
+          echo "add_library(libipfs INTERFACE)" > external/libipfs/CMakeLists.txt
+          cd ..
+
+      - name: Fix CMake version
+        run: |
+          cd monero
+          sed -i 's/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/' CMakeLists.txt
+          cd ..
+
       - name: Build Scala library
         run: |
           cd monero
+          rm -rf build
+          mkdir -p build && cd build
 
-          # Используем стандартную сборку из Scala CI
-          cmake -S . -B build \
-            -D ARCH="default" \
-            -D BUILD_TESTS=ON \
-            -D CMAKE_BUILD_TYPE=Release
+          cmake -D STATIC=OFF \
+                -D ARCH="x86-64" \
+                -D BUILD_64=ON \
+                -D CMAKE_BUILD_TYPE=Release \
+                -D USE_READLINE=OFF \
+                -D BUILD_TESTS=OFF \
+                -D BUILD_DOCUMENTATION=OFF \
+                ..
 
-          cmake --build build --target all
-          cmake --build build --target wallet_api
+          make -j$(nproc)
 
-          # Библиотека должна появиться здесь
-          ls -la build/lib/libwallet_api.a || echo "Checking alternative locations..."
-          find build -name "*.a" | grep -i wallet
-
-          cd ..
+          # Ищем библиотеку
+          find . -name "*.a" | grep -i wallet || echo "Not found"
+          cd ../..
 
       - name: Build Feather
         run: |
@@ -66,5 +81,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: feather-xla-ubuntu22
+          name: feather-xla
           path: build/bin/feather
