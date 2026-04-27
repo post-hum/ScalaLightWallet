@@ -33,32 +33,13 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Switch Scala to upstream branch and patch
-        run: |
-          cd monero
-          git fetch origin
-          git checkout upstream/v0.18.4.6
-          git pull origin upstream/v0.18.4.6
-          git submodule update --init --force --recursive
-
-          # Fix CMake version requirements
-          find . -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3.[0-9]\+)/cmake_minimum_required(VERSION 3.10)/g' {} \;
-          find . -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 2.8.12)/cmake_minimum_required(VERSION 3.10)/g' {} \;
-
-          # Remove IPFS completely
-          rm -rf external/libipfs
-          sed -i '/libipfs/d' CMakeLists.txt
-          sed -i '/IPFS/d' CMakeLists.txt
-
-          # Disable problematic checks
-          echo "macro(forbid_undefined_symbols) endmacro()" >> CMakeLists.txt
-          echo "macro(check_and_set_ccache) endmacro()" >> CMakeLists.txt
-
-          cd ..
-
       - name: Build Scala library
         run: |
           cd monero
+
+          # Просто повышаем минимальную версию CMake
+          sed -i 's/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/' CMakeLists.txt
+
           rm -rf build
           mkdir -p build && cd build
 
@@ -78,7 +59,7 @@ jobs:
             echo "✅ libwallet_merged.a built successfully"
             ls -la lib/libwallet_merged.a
           else
-            echo "❌ libwallet_merged.a not found"
+            echo "❌ libwallet_merged.a not found, available libs:"
             find . -name "*.a"
             exit 1
           fi
