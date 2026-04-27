@@ -17,8 +17,8 @@ jobs:
           apt install -y --no-install-recommends \
             ca-certificates git wget build-essential cmake \
             libssl-dev libunbound-dev libboost-all-dev \
-            libqrencode-dev qt5-qmake qt5-default \
-            qtbase5-dev qttools5-dev-tools \
+            libqrencode-dev qt5-qmake qtbase5-dev \
+            qttools5-dev-tools libqt5svg5-dev \
             libzip-dev libsodium-dev libx11-xcb-dev \
             protobuf-compiler libprotobuf-dev \
             libhidapi-dev libusb-1.0-0-dev libzmq3-dev \
@@ -32,7 +32,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Kill IPFS
+      - name: Kill IPFS completely
         run: |
           cd monero
           rm -rf external/libipfs
@@ -67,7 +67,7 @@ jobs:
           make -j$(nproc)
 
           # Ищем библиотеку
-          find . -name "*.a" | grep -i wallet || echo "Not found"
+          find . -name "*.a" | grep -i wallet || echo "libwallet_merged.a not found"
           cd ../..
 
       - name: Build Feather
